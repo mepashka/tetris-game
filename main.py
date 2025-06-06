@@ -1,88 +1,60 @@
-
 import pygame
-import random
-import json
-from copy import deepcopy
+from tetris import *
+from utils import save_game, load_game, save_stats, load_stats
 
-# Константы
-CELL_SIZE = 30
-COLS = 10
-ROWS = 20
-WIDTH = CELL_SIZE * COLS
-HEIGHT = CELL_SIZE * ROWS
-FPS = 60
-WHITE = (255, 255, 255)
-GRAY = (50, 50, 50)
-COLORS = [(0, 255, 255), (0, 0, 255), (255, 165, 0),
-          (255, 255, 0), (0, 255, 0), (128, 0, 128), (255, 0, 0)]
+pygame.init()
 
-SHAPES = [
-    [[1, 1, 1, 1]],                         # I
-    [[1, 1], [1, 1]],                       # O
-    [[0, 1, 0], [1, 1, 1]],                 # T
-    [[1, 1, 0], [0, 1, 1]],                 # S
-    [[0, 1, 1], [1, 1, 0]],                 # Z
-    [[1, 0, 0], [1, 1, 1]],                 # J
-    [[0, 0, 1], [1, 1, 1]]                  # L
-]
+WIDTH, HEIGHT = COLS * CELL_SIZE, ROWS * CELL_SIZE
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Tetris")
+clock = pygame.time.Clock()
+font = pygame.font.SysFont("Arial", 24)
 
-class Tetromino:
-    def __init__(self, shape=None):
-        self.shape = shape if shape else random.choice(SHAPES)
-        self.color = random.choice(COLORS)
-        self.x = COLS // 2 - len(self.shape[0]) // 2
-        self.y = 0
+def draw_text_center(text, y, color=(255, 255, 255)):
+    render = font.render(text, True, color)
+    screen.blit(render, (WIDTH // 2 - render.get_width() // 2, y))
 
-    def rotate(self):
-        self.shape = [list(row)[::-1] for row in zip(*self.shape)]
+def menu():
+    running = True
+    selected = 0
+    options = ["Новая игра", "Загрузить игру", "Выход"]
 
-def check_collision(grid, shape, x, y):
-    for row_idx, row in enumerate(shape):
-        for col_idx, cell in enumerate(row):
-            if cell:
-                nx = x + col_idx
-                ny = y + row_idx
-                if nx < 0 or nx >= COLS or ny >= ROWS or (ny >= 0 and grid[ny][nx]):
-                    return True
-    return False
+    record = load_stats()["record"]
 
-def merge(grid, tetromino):
-    for row_idx, row in enumerate(tetromino.shape):
-        for col_idx, cell in enumerate(row):
-            if cell:
-                grid[tetromino.y + row_idx][tetromino.x + col_idx] = tetromino.color
+    while running:
+        screen.fill((0, 0, 0))
+        draw_text_center("ТЕТРИС", 60, (255, 255, 0))
+        draw_text_center(f"Рекорд: {record}", 100)
 
-def clear_lines(grid):
-    new_grid = [row for row in grid if any(cell == 0 for cell in row)]
-    lines_cleared = ROWS - len(new_grid)
-    for _ in range(lines_cleared):
-        new_grid.insert(0, [0] * COLS)
-    return new_grid, lines_cleared
+        for i, option in enumerate(options):
+            color = (255, 255, 255) if i != selected else (0, 255, 0)
+            draw_text_center(option, 160 + i * 40, color)
 
-def create_grid():
-    return [[0 for _ in range(COLS)] for _ in range(ROWS)]
+        pygame.display.flip()
 
-def draw_grid(screen, grid):
-    for y, row in enumerate(grid):
-        for x, cell in enumerate(row):
-            rect = pygame.Rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
-            color = GRAY if not cell else cell
-            pygame.draw.rect(screen, color, rect)
-            pygame.draw.rect(screen, WHITE, rect, 1)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "exit"
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(options)
+                elif event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(options)
+                elif event.key == pygame.K_RETURN:
+                    return options[selected].lower()
 
-def main():
-    pygame.init()
-    screen = pygame.display.set_mode((WIDTH, HEIGHT))
-    pygame.display.set_caption("Tetris")
-    clock = pygame.time.Clock()
-    font = pygame.font.SysFont("Arial", 20)
+        clock.tick(30)
 
-    grid = create_grid()
-    current = Tetromino()
-    next_shape = Tetromino()
+def game_loop(grid=None, current=None, next_piece=None, score=0):
+    if grid is None:
+        grid = create_grid()
+    if current is None:
+        current = Tetromino()
+    if next_piece is None:
+        next_piece = Tetromino()
+
     fall_time = 0
-    fall_speed = 500  # ms
-    score = 0
+    fall_speed = 500
     paused = False
     running = True
     game_over = False
@@ -106,7 +78,15 @@ def main():
                 if event.key == pygame.K_SPACE:
                     paused = not paused
 
-                if not paused and not game_over:
+                elif paused and not game_over:
+                    if event.key == pygame.K_s:
+                        save_game(grid, current, next_piece, score)
+                    elif event.key == pygame.K_r:
+                        return game_loop()  # перезапуск
+                    elif event.key == pygame.K_ESCAPE:
+                        return  # выход в меню
+
+                elif not paused and not game_over:
                     if event.key in [pygame.K_LEFT, pygame.K_a]:
                         if not check_collision(grid, current.shape, current.x - 1, current.y):
                             current.x -= 1
@@ -121,6 +101,10 @@ def main():
                         rotated.rotate()
                         if not check_collision(grid, rotated.shape, rotated.x, rotated.y):
                             current.rotate()
+                    elif event.key == pygame.K_ESCAPE:
+                        running = False
+
+
 
         if not paused and not game_over:
             fall_time += clock.get_time()
@@ -132,40 +116,51 @@ def main():
                     merge(grid, current)
                     grid, lines = clear_lines(grid)
                     score += lines * 100
-                    current = next_shape
-                    next_shape = Tetromino()
+                    current = next_piece
+                    next_piece = Tetromino()
                     if check_collision(grid, current.shape, current.x, current.y):
                         game_over = True
+                        save_stats(score)
 
-        score_text = font.render(f"Score: {score}", True, WHITE)
+        save_game(grid, current, next_piece, score)
+
+        score_text = font.render(f"Счёт: {score}", True, WHITE)
         screen.blit(score_text, (10, 10))
 
         if paused and not game_over:
-            pause_text = font.render("PAUSED", True, WHITE)
-            screen.blit(pause_text, (WIDTH // 2 - 40, HEIGHT // 2))
+            overlay_height = 140
+            overlay_rect = pygame.Surface((WIDTH, overlay_height))
+            overlay_rect.set_alpha(200)
+            overlay_rect.fill((0, 0, 0))
+            screen.blit(overlay_rect, (0, HEIGHT // 2 - 70))
+
+            pause_text = font.render("ПАУЗА", True, WHITE)
+            save_text = font.render("S — Сохранить", True, WHITE)
+            restart_text = font.render("R — Начать заново", True, WHITE)
+            exit_text = font.render("ESC — Выйти в меню", True, WHITE)
+
+            screen.blit(pause_text, (WIDTH // 2 - pause_text.get_width() // 2, HEIGHT // 2 - 50))
+            screen.blit(save_text, (WIDTH // 2 - save_text.get_width() // 2, HEIGHT // 2 - 15))
+            screen.blit(restart_text, (WIDTH // 2 - restart_text.get_width() // 2, HEIGHT // 2 + 15))
+            screen.blit(exit_text, (WIDTH // 2 - exit_text.get_width() // 2, HEIGHT // 2 + 45))
+
 
         if game_over:
-            # затемнённый фон под текст
             overlay_height = 100
             overlay_rect = pygame.Surface((WIDTH, overlay_height))
-            overlay_rect.set_alpha(200)  # прозрачность: 0–255
-            overlay_rect.fill((0, 0, 0))  # чёрный фон
+            overlay_rect.set_alpha(200)
+            overlay_rect.fill((0, 0, 0))
             screen.blit(overlay_rect, (0, HEIGHT // 2 - 50))
 
-            # текст поверх фона
-            over_text = font.render("GAME OVER", True, (255, 0, 0))
+            over_text = font.render("ИГРА ОКОНЧЕНА", True, (255, 0, 0))
             final_score = font.render(f"Ваш счёт: {score}", True, WHITE)
-            prompt_text = font.render("Нажмите любую клавишу, чтобы выйти", True, WHITE)
+            prompt_text = font.render("Нажмите любую клавишу", True, WHITE)
 
             screen.blit(over_text, (WIDTH // 2 - over_text.get_width() // 2, HEIGHT // 2 - 40))
             screen.blit(final_score, (WIDTH // 2 - final_score.get_width() // 2, HEIGHT // 2 - 10))
             screen.blit(prompt_text, (WIDTH // 2 - prompt_text.get_width() // 2, HEIGHT // 2 + 20))
 
-
-        pygame.display.flip()
-        clock.tick(FPS)
-
-        if game_over:
+            pygame.display.flip()
             waiting = True
             while waiting:
                 for event in pygame.event.get():
@@ -173,7 +168,20 @@ def main():
                         waiting = False
                         running = False
 
+        pygame.display.flip()
+        clock.tick(60)
+
     pygame.quit()
 
 if __name__ == "__main__":
-    main()
+    while True:
+        choice = menu()
+        if choice == "новая игра":
+            game_loop()
+        elif choice == "загрузить игра":
+            grid, current, next_piece, score = load_game()
+            game_loop(grid, current, next_piece, score)
+        elif choice == "выход":
+            pygame.quit()
+            break
+
